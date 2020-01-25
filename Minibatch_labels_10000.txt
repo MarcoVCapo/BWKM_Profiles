@@ -1,0 +1,29 @@
+Line #      Hits         Time  Per Hit   % Time  Line Contents
+==============================================================
+  1483                                               def _labels_inertia_minibatch(self, X):
+  1484                                                   """Compute labels and inertia using mini batches.
+  1485                                           
+  1486                                                   This is slightly slower than doing everything at once but preventes
+  1487                                                   memory errors / segfaults.
+  1488                                           
+  1489                                                   Parameters
+  1490                                                   ----------
+  1491                                                   X : array-like, shape (n_samples, n_features)
+  1492                                                       Input data.
+  1493                                           
+  1494                                                   Returns
+  1495                                                   -------
+  1496                                                   labels : array, shap (n_samples,)
+  1497                                                       Cluster labels for each point.
+  1498                                           
+  1499                                                   inertia : float
+  1500                                                       Sum of squared distances of points to nearest cluster.
+  1501                                                   """
+  1502         1            2      2.0      0.0          if self.verbose:
+  1503                                                       print('Computing label assignment and total inertia')
+  1504         1           60     60.0      0.4          x_squared_norms = row_norms(X, squared=True)
+  1505         1            1      1.0      0.0          slices = gen_batches(X.shape[0], self.batch_size)
+  1506         1            1      1.0      0.0          results = [_labels_inertia(X[s], x_squared_norms[s],
+  1507       101        15682    155.3     97.8                                     self.cluster_centers_) for s in slices]
+  1508         1            9      9.0      0.1          labels, inertia = zip(*results)
+  1509         1          282    282.0      1.8          return np.hstack(labels), np.sum(inertia)

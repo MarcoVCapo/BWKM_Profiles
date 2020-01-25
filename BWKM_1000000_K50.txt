@@ -1,0 +1,59 @@
+Line #      Hits         Time  Per Hit   % Time  Line Contents
+==============================================================
+    24                                           def BWKM(D,k,m0,r,m,s,maxiter,maxb):
+    25                                               ########################################################################################################
+    26                                               #INPUT:
+    27                                               # D: data set, k: number of clusters, m0: size of the starting initial partition (m0=2*k by default)
+    28                                               # m: size oe initial partition (m=10*sqrt(k*d) by default), s: subsample size (s=log(n) by default)
+    29                                               # Optionally, maxiter: maximum number of BWKM iterations; maxb= maximum number of blocks to be divided
+    30                                               ######################################################################################################## 
+    31                                               
+    32         1            2      2.0      0.0      (n,d)= D.shape
+    33                                               
+    34                                               #######################################################################################################
+    35                                               # CONSTRUCTION OF INITIAL PARTITION: 
+    36         1           42     42.0      0.0      tree= pt.PartitionTree2(D)   
+    37         1        80453  80453.0      0.0      tree.createBalancedPartition2(D, k, m, m0, s, r) # Algorithm 2: construct initial partition
+    38         1      2294575 2294575.0      1.1      tree.assignData(D) # Assign all instances to their corresponding block of the spatial partition
+    39         1        86706  86706.0      0.0      tree.learnStats(D) # Compute representatives and weights
+    40         1           56     56.0      0.0      tree.NullLeaves()  # Delete all empty blocks of the spatial partiton
+    41         1       448788 448788.0      0.2      tree.BBox(D)       # Compute bounding box each block of the spatial partition
+    42                                               #######################################################################################################   
+    43                                           
+    44         1        24340  24340.0      0.0      C=fkm.InitialMed(tree,k); # Initial set of centroids
+    45         1            2      2.0      0.0      i=0;ni=len(tree.leaves);MinLoc=False;
+    46                                           
+    47       102          168      1.6      0.0      while (MinLoc==False) and (i<=maxiter):                        
+    48                                           
+    49       101         2566     25.4      0.0          C1=copy.deepcopy(C);
+    50                                                   
+    51                                                   ###################################################################################################
+    52                                                   # WEIGHTED VERSION OF LLOYD'S ALGORITHM OVER THE CURRENT SET OF REPRESENTATIVES:
+    53       101         1367     13.5      0.0          k_means = KMeans(init=C1, n_clusters=k, n_init=1);  
+    54       101    199580896 1976048.5     97.3          k_means.fit(fkm.WeightedDataTree(tree,n,d))
+    55       101          360      3.6      0.0          C= k_means.cluster_centers_
+    56                                                   ################################################################################################### 
+    57                                           
+    58                                                   ###################################################################################################
+    59                                                   # WELL-ASSIGNED BLOCK CRITERION:
+    60     59217       183863      3.1      0.1          DistM = cdist(np.array([leaf.avg for leaf in tree.leaves]),C, 'euclidean');DistM.sort(axis=1)
+    61     59217       265440      4.5      0.1          CutCrit=np.array([max(2*np.sqrt(tree.leaves[j].diag2)-(DistM[j][1]-DistM[j][0]),0) for j in range(ni)])
+    62                                                   ###################################################################################################
+    63                                                   
+    64                                                   ###################################################################################################
+    65                                                   # SPATIAL PARTITION UPDATE:
+    66       101         5670     56.1      0.0          if max(CutCrit)>0:
+    67       101        17674    175.0      0.0              LeafCand=np.random.choice(range(ni),min(ni,maxb),p=CutCrit/np.sum(CutCrit));
+    68       101         3455     34.2      0.0              LeafCand=np.unique(LeafCand);
+    69       101         1153     11.4      0.0              OrdIt=np.argsort(LeafCand)[::-1];lmSup=len(LeafCand) 
+    70      1097         1857      1.7      0.0              for j in range(lmSup):
+    71       996         2630      2.6      0.0                  iLeaf=LeafCand[OrdIt[j]];leaf=tree.leaves[iLeaf];
+    72       996         6844      6.9      0.0                  dLeaf=np.argmax(leaf.length)
+    73       996      2166924   2175.6      1.1                  tree.splitLeaf(iLeaf,dLeaf,D,True,True)
+    74                                                   else:
+    75                                                       MinLoc=True
+    76                                                   ###################################################################################################
+    77                                                      
+    78       101          225      2.2      0.0          i+=1;ni=len(tree.leaves);
+    79                                                                                                                                                               
+    80         1            1      1.0      0.0      return 

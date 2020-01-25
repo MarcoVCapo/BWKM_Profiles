@@ -1,0 +1,136 @@
+Line #      Hits         Time  Per Hit   % Time  Line Contents
+==============================================================
+  1015                                           def _mini_batch_step(X, x_squared_norms, centers, counts,
+  1016                                                                old_center_buffer, compute_squared_diff,
+  1017                                                                distances, random_reassign=False,
+  1018                                                                random_state=None, reassignment_ratio=.01,
+  1019                                                                verbose=False):
+  1020                                               """Incremental update of the centers for the Minibatch K-Means algorithm.
+  1021                                           
+  1022                                               Parameters
+  1023                                               ----------
+  1024                                           
+  1025                                               X : array, shape (n_samples, n_features)
+  1026                                                   The original data array.
+  1027                                           
+  1028                                               x_squared_norms : array, shape (n_samples,)
+  1029                                                   Squared euclidean norm of each data point.
+  1030                                           
+  1031                                               centers : array, shape (k, n_features)
+  1032                                                   The cluster centers. This array is MODIFIED IN PLACE
+  1033                                           
+  1034                                               counts : array, shape (k,)
+  1035                                                    The vector in which we keep track of the numbers of elements in a
+  1036                                                    cluster. This array is MODIFIED IN PLACE
+  1037                                           
+  1038                                               distances : array, dtype float, shape (n_samples), optional
+  1039                                                   If not None, should be a pre-allocated array that will be used to store
+  1040                                                   the distances of each sample to its closest center.
+  1041                                                   May not be None when random_reassign is True.
+  1042                                           
+  1043                                               random_state : int, RandomState instance or None, optional, default: None
+  1044                                                   If int, random_state is the seed used by the random number generator;
+  1045                                                   If RandomState instance, random_state is the random number generator;
+  1046                                                   If None, the random number generator is the RandomState instance used
+  1047                                                   by `np.random`.
+  1048                                           
+  1049                                               random_reassign : boolean, optional
+  1050                                                   If True, centers with very low counts are randomly reassigned
+  1051                                                   to observations.
+  1052                                           
+  1053                                               reassignment_ratio : float, optional
+  1054                                                   Control the fraction of the maximum number of counts for a
+  1055                                                   center to be reassigned. A higher value means that low count
+  1056                                                   centers are more likely to be reassigned, which means that the
+  1057                                                   model will take longer to converge, but should converge in a
+  1058                                                   better clustering.
+  1059                                           
+  1060                                               verbose : bool, optional, default False
+  1061                                                   Controls the verbosity.
+  1062                                           
+  1063                                               compute_squared_diff : bool
+  1064                                                   If set to False, the squared diff computation is skipped.
+  1065                                           
+  1066                                               old_center_buffer : int
+  1067                                                   Copy of old centers for monitoring convergence.
+  1068                                           
+  1069                                               Returns
+  1070                                               -------
+  1071                                               inertia : float
+  1072                                                   Sum of squared distances of samples to their closest cluster center.
+  1073                                           
+  1074                                               squared_diff : numpy array, shape (n_clusters,)
+  1075                                                   Squared distances between previous and updated cluster centers.
+  1076                                           
+  1077                                               """
+  1078                                               # Perform label assignment to nearest centers
+  1079         1            1      1.0      0.1      nearest_center, inertia = _labels_inertia(X, x_squared_norms, centers,
+  1080         1          258    258.0     35.2                                                distances=distances)
+  1081                                           
+  1082         1            1      1.0      0.1      if random_reassign and reassignment_ratio > 0:
+  1083                                                   random_state = check_random_state(random_state)
+  1084                                                   # Reassign clusters that have very low counts
+  1085                                                   to_reassign = counts < reassignment_ratio * counts.max()
+  1086                                                   # pick at most .5 * batch_size samples as new centers
+  1087                                                   if to_reassign.sum() > .5 * X.shape[0]:
+  1088                                                       indices_dont_reassign = np.argsort(counts)[int(.5 * X.shape[0]):]
+  1089                                                       to_reassign[indices_dont_reassign] = False
+  1090                                                   n_reassigns = to_reassign.sum()
+  1091                                                   if n_reassigns:
+  1092                                                       # Pick new clusters amongst observations with uniform probability
+  1093                                                       new_centers = random_state.choice(X.shape[0], replace=False,
+  1094                                                                                         size=n_reassigns)
+  1095                                                       if verbose:
+  1096                                                           print("[MiniBatchKMeans] Reassigning %i cluster centers."
+  1097                                                                 % n_reassigns)
+  1098                                           
+  1099                                                       if sp.issparse(X) and not sp.issparse(centers):
+  1100                                                           assign_rows_csr(X, new_centers.astype(np.intp),
+  1101                                                                           np.where(to_reassign)[0].astype(np.intp),
+  1102                                                                           centers)
+  1103                                                       else:
+  1104                                                           centers[to_reassign] = X[new_centers]
+  1105                                                   # reset counts of reassigned centers, but don't reset them too small
+  1106                                                   # to avoid instant reassignment. This is a pretty dirty hack as it
+  1107                                                   # also modifies the learning rates.
+  1108                                                   counts[to_reassign] = np.min(counts[~to_reassign])
+  1109                                           
+  1110                                               # implementation for the sparse CSR representation completely written in
+  1111                                               # cython
+  1112         1            2      2.0      0.3      if sp.issparse(X):
+  1113                                                   return inertia, _k_means._mini_batch_update_csr(
+  1114                                                       X, x_squared_norms, centers, counts, nearest_center,
+  1115                                                       old_center_buffer, compute_squared_diff)
+  1116                                           
+  1117                                               # dense variant in mostly numpy (not as memory efficient though)
+  1118         1            1      1.0      0.1      k = centers.shape[0]
+  1119         1            1      1.0      0.1      squared_diff = 0.0
+  1120        11           13      1.2      1.8      for center_idx in range(k):
+  1121                                                   # find points from minibatch that are assigned to this center
+  1122        10           37      3.7      5.0          center_mask = nearest_center == center_idx
+  1123        10           53      5.3      7.2          count = center_mask.sum()
+  1124                                           
+  1125        10           11      1.1      1.5          if count > 0:
+  1126        10            8      0.8      1.1              if compute_squared_diff:
+  1127                                                           old_center_buffer[:] = centers[center_idx]
+  1128                                           
+  1129                                                       # inplace remove previous count scaling
+  1130        10           50      5.0      6.8              centers[center_idx] *= counts[center_idx]
+  1131                                           
+  1132                                                       # inplace sum with new points members of this cluster
+  1133        10          182     18.2     24.8              centers[center_idx] += np.sum(X[center_mask], axis=0)
+  1134                                           
+  1135                                                       # update the count statistics for this center
+  1136        10           57      5.7      7.8              counts[center_idx] += count
+  1137                                           
+  1138                                                       # inplace rescale to compute mean of all points (old and new)
+  1139                                                       # Note: numpy >= 1.10 does not support '/=' for the following
+  1140                                                       # expression for a mixture of int and float (see numpy issue #6464)
+  1141        10           49      4.9      6.7              centers[center_idx] = centers[center_idx] / counts[center_idx]
+  1142                                           
+  1143                                                       # update the squared diff if necessary
+  1144        10            8      0.8      1.1              if compute_squared_diff:
+  1145                                                           diff = centers[center_idx].ravel() - old_center_buffer.ravel()
+  1146                                                           squared_diff += np.dot(diff, diff)
+  1147                                           
+  1148         1            1      1.0      0.1      return inertia, squared_diff

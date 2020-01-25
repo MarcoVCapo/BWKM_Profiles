@@ -1,0 +1,138 @@
+Line #      Hits         Time  Per Hit   % Time  Line Contents
+==============================================================
+  1342                                               def fit(self, X, y=None):
+  1343                                                   """Compute the centroids on X by chunking it into mini-batches.
+  1344                                           
+  1345                                                   Parameters
+  1346                                                   ----------
+  1347                                                   X : array-like or sparse matrix, shape=(n_samples, n_features)
+  1348                                                       Training instances to cluster.
+  1349                                           
+  1350                                                   y : Ignored
+  1351                                           
+  1352                                                   """
+  1353         1            6      6.0      0.0          random_state = check_random_state(self.random_state)
+  1354         1            2      2.0      0.0          X = check_array(X, accept_sparse="csr", order='C',
+  1355         1          209    209.0      0.1                          dtype=[np.float64, np.float32])
+  1356         1            2      2.0      0.0          n_samples, n_features = X.shape
+  1357         1            2      2.0      0.0          if n_samples < self.n_clusters:
+  1358                                                       raise ValueError("Number of samples smaller than number "
+  1359                                                                        "of clusters.")
+  1360                                           
+  1361         1            1      1.0      0.0          n_init = self.n_init
+  1362         1            2      2.0      0.0          if hasattr(self.init, '__array__'):
+  1363                                                       self.init = np.ascontiguousarray(self.init, dtype=X.dtype)
+  1364                                                       if n_init != 1:
+  1365                                                           warnings.warn(
+  1366                                                               'Explicit initial center position passed: '
+  1367                                                               'performing only one init in MiniBatchKMeans instead of '
+  1368                                                               'n_init=%d'
+  1369                                                               % self.n_init, RuntimeWarning, stacklevel=2)
+  1370                                                           n_init = 1
+  1371                                           
+  1372         1          476    476.0      0.2          x_squared_norms = row_norms(X, squared=True)
+  1373                                           
+  1374         1            2      2.0      0.0          if self.tol > 0.0:
+  1375                                                       tol = _tolerance(X, self.tol)
+  1376                                           
+  1377                                                       # using tol-based early stopping needs the allocation of a
+  1378                                                       # dedicated before which can be expensive for high dim data:
+  1379                                                       # hence we allocate it outside of the main loop
+  1380                                                       old_center_buffer = np.zeros(n_features, dtype=X.dtype)
+  1381                                                   else:
+  1382         1            1      1.0      0.0              tol = 0.0
+  1383                                                       # no need for the center buffer if tol-based early stopping is
+  1384                                                       # disabled
+  1385         1            8      8.0      0.0              old_center_buffer = np.zeros(0, dtype=X.dtype)
+  1386                                           
+  1387         1            3      3.0      0.0          distances = np.zeros(self.batch_size, dtype=X.dtype)
+  1388         1           11     11.0      0.0          n_batches = int(np.ceil(float(n_samples) / self.batch_size))
+  1389         1            1      1.0      0.0          n_iter = int(self.max_iter * n_batches)
+  1390                                           
+  1391         1            2      2.0      0.0          init_size = self.init_size
+  1392         1            1      1.0      0.0          if init_size is None:
+  1393         1            1      1.0      0.0              init_size = 3 * self.batch_size
+  1394         1            1      1.0      0.0          if init_size > n_samples:
+  1395                                                       init_size = n_samples
+  1396         1            2      2.0      0.0          self.init_size_ = init_size
+  1397                                           
+  1398         1           19     19.0      0.0          validation_indices = random_state.randint(0, n_samples, init_size)
+  1399         1           19     19.0      0.0          X_valid = X[validation_indices]
+  1400         1            4      4.0      0.0          x_squared_norms_valid = x_squared_norms[validation_indices]
+  1401                                           
+  1402                                                   # perform several inits with random sub-sets
+  1403         1            1      1.0      0.0          best_inertia = None
+  1404         2            4      2.0      0.0          for init_idx in range(n_init):
+  1405         1            2      2.0      0.0              if self.verbose:
+  1406                                                           print("Init %d/%d with method: %s"
+  1407                                                                 % (init_idx + 1, n_init, self.init))
+  1408         1            3      3.0      0.0              counts = np.zeros(self.n_clusters, dtype=np.int32)
+  1409                                           
+  1410                                                       # TODO: once the `k_means` function works with sparse input we
+  1411                                                       # should refactor the following init to use it instead.
+  1412                                           
+  1413                                                       # Initialize the centers using only a fraction of the data as we
+  1414                                                       # expect n_samples to be very large when using MiniBatchKMeans
+  1415         1            1      1.0      0.0              cluster_centers = _init_centroids(
+  1416         1            1      1.0      0.0                  X, self.n_clusters, self.init,
+  1417         1            1      1.0      0.0                  random_state=random_state,
+  1418         1            1      1.0      0.0                  x_squared_norms=x_squared_norms,
+  1419         1           99     99.0      0.0                  init_size=init_size)
+  1420                                           
+  1421                                                       # Compute the label assignment on the init dataset
+  1422         1            1      1.0      0.0              batch_inertia, centers_squared_diff = _mini_batch_step(
+  1423         1            2      2.0      0.0                  X_valid, x_squared_norms[validation_indices],
+  1424         1            1      1.0      0.0                  cluster_centers, counts, old_center_buffer, False,
+  1425         1          566    566.0      0.2                  distances=None, verbose=self.verbose)
+  1426                                           
+  1427                                                       # Keep only the best cluster centers across independent inits on
+  1428                                                       # the common validation set
+  1429         1            2      2.0      0.0              _, inertia = _labels_inertia(X_valid, x_squared_norms_valid,
+  1430         1          192    192.0      0.1                                           cluster_centers)
+  1431         1            1      1.0      0.0              if self.verbose:
+  1432                                                           print("Inertia for init %d/%d: %f"
+  1433                                                                 % (init_idx + 1, n_init, inertia))
+  1434         1            1      1.0      0.0              if best_inertia is None or inertia < best_inertia:
+  1435         1            2      2.0      0.0                  self.cluster_centers_ = cluster_centers
+  1436         1            2      2.0      0.0                  self.counts_ = counts
+  1437         1            1      1.0      0.0                  best_inertia = inertia
+  1438                                           
+  1439                                                   # Empty context to be used inplace by the convergence check routine
+  1440         1            1      1.0      0.0          convergence_context = {}
+  1441                                           
+  1442                                                   # Perform the iterative optimization until the final convergence
+  1443                                                   # criterion
+  1444       138          845      6.1      0.3          for iteration_idx in range(n_iter):
+  1445                                                       # Sample a minibatch from the full dataset
+  1446       138          156      1.1      0.1              minibatch_indices = random_state.randint(
+  1447       138         1132      8.2      0.5                  0, n_samples, self.batch_size)
+  1448                                           
+  1449                                                       # Perform the actual update step on the minibatch data
+  1450       138          139      1.0      0.1              batch_inertia, centers_squared_diff = _mini_batch_step(
+  1451       138         1740     12.6      0.7                  X[minibatch_indices], x_squared_norms[minibatch_indices],
+  1452       138          170      1.2      0.1                  self.cluster_centers_, self.counts_,
+  1453       138          148      1.1      0.1                  old_center_buffer, tol > 0.0, distances=distances,
+  1454                                                           # Here we randomly choose whether to perform
+  1455                                                           # random reassignment: the choice is done as a function
+  1456                                                           # of the iteration index, and the minimum number of
+  1457                                                           # counts, in order to force this reassignment to happen
+  1458                                                           # every once in a while
+  1459       138          141      1.0      0.1                  random_reassign=((iteration_idx + 1)
+  1460       138         1504     10.9      0.6                                   % (10 + self.counts_.min()) == 0),
+  1461       138          146      1.1      0.1                  random_state=random_state,
+  1462       138          146      1.1      0.1                  reassignment_ratio=self.reassignment_ratio,
+  1463       138        68289    494.8     27.7                  verbose=self.verbose)
+  1464                                           
+  1465                                                       # Monitor convergence and do early stopping if necessary
+  1466       138          245      1.8      0.1              if _mini_batch_convergence(
+  1467       138          142      1.0      0.1                      self, iteration_idx, n_iter, tol, n_samples,
+  1468       138          139      1.0      0.1                      centers_squared_diff, batch_inertia, convergence_context,
+  1469       138         1855     13.4      0.8                      verbose=self.verbose):
+  1470         1          551    551.0      0.2                  break
+  1471                                           
+  1472         1            2      2.0      0.0          self.n_iter_ = iteration_idx + 1
+  1473                                           
+  1474         1            1      1.0      0.0          if self.compute_labels:
+  1475         1       167279 167279.0     67.9              self.labels_, self.inertia_ = self._labels_inertia_minibatch(X)
+  1476                                           
+  1477         1            1      1.0      0.0          return self
